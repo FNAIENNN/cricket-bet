@@ -1,0 +1,58 @@
+# Dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# Next.js
+.next/
+out/
+build/
+dist/
+
+# Production
+vercel.json
+.netlify/
+
+# Environment
+.env
+.env.local
+.env.production
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Prisma
+prisma/*.db
+prisma/*.db-journal
+prisma/migrations/*.db
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporary
+*.tmp
+*.temp
+.cache/
+
+# Sensitive files (already there, but double-check)
+.env
+.env.*
+!.env.example
+*.backup
+*.bak
+*.secret
+secrets/
