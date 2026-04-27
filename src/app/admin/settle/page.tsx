@@ -12,7 +12,7 @@ export default async function AdminSettlePage() {
   const matches = await prisma.match.findMany({
     where: {
       status: { in: ["FINISHED", "TOSS_DONE", "LIVE"] },
-      settlementTime: null,
+      settledAt: null,  // Changed from settledAt to settledAt
     },
     include: {
       bets: {

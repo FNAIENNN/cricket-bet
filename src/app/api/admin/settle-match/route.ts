@@ -29,7 +29,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Match not found" }, { status: 404 });
     }
 
-    if (match.settlementTime) {
+    // Changed from settledAt to settledAt
+    if (match.settledAt) {
       return NextResponse.json({ error: "Match already settled" }, { status: 400 });
     }
 
@@ -89,7 +90,6 @@ export async function POST(req: NextRequest) {
         data: {
           tossWinner: winner,
           status: "FINISHED",
-          settlementTime: new Date(),
           settledBy: session.user.id,
           settledAt: new Date(),
         },
