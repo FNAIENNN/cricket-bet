@@ -57,3 +57,4 @@ Thumbs.db
 *.secret
 secrets/
 .vercel
+.env.production
