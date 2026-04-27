@@ -1,14 +1,17 @@
-// src/app/api/user/bets/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { z } from "zod";
 import { MatchStatus, TransactionType, TransactionStatus } from "@prisma/client";
 
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
 const betSchema = z.object({
   matchId: z.string(),
   selection: z.enum(["teamA", "teamB"]),
-  amount: z.number().min(10).max(100000),
+  amount: z.number().min(100).max(50000),
+  odds: z.number().optional(),
 });
 
 export async function GET(req: NextRequest) {
@@ -37,7 +40,8 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { matchId, selection, amount } = betSchema.parse(body);
+    const { matchId, selection, amount, odds } = betSchema.parse(body);
+    const finalOdds = odds || 1.95;
 
     const user = await prisma.user.findUnique({
       where: { id: session.user.id },
@@ -68,18 +72,26 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Already bet on this match" }, { status: 400 });
     }
 
-    const odds = match.tossOdds;
-    const potential = parseFloat((amount * odds).toFixed(2));
+    const potential = parseFloat((amount * finalOdds).toFixed(2));
 
-    const [wallet, bet] = await prisma.$transaction([
-      prisma.wallet.update({
+    const result = await prisma.$transaction(async (tx) => {
+      const wallet = await tx.wallet.update({
         where: { userId: session.user.id },
         data: { balance: { decrement: amount } },
-      }),
-      prisma.bet.create({
-        data: { userId: session.user.id, matchId, selection, amount, odds, potential },
-      }),
-      prisma.transaction.create({
+      });
+      
+      const bet = await tx.bet.create({
+        data: { 
+          userId: session.user.id, 
+          matchId, 
+          selection, 
+          amount, 
+          odds: finalOdds, 
+          potential 
+        },
+      });
+      
+      await tx.transaction.create({
         data: {
           userId: session.user.id,
           type: TransactionType.BET_PLACED,
@@ -87,10 +99,12 @@ export async function POST(req: NextRequest) {
           status: TransactionStatus.COMPLETED,
           notes: `Bet on ${match.title}`,
         },
-      }),
-    ]);
+      });
+      
+      return { wallet, bet };
+    });
 
-    return NextResponse.json({ bet, wallet }, { status: 201 });
+    return NextResponse.json({ success: true, bet: result.bet, wallet: result.wallet }, { status: 201 });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: error.errors[0].message }, { status: 400 });

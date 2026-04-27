@@ -4,20 +4,13 @@ const nextConfig = {
     remotePatterns: [
       { hostname: "*.supabase.co" },
       { hostname: "lh3.googleusercontent.com" },
-      { hostname: "avatars.githubusercontent.com" },
     ],
   },
-  
-  // swcMinify is enabled by default in Next.js 16, remove it
-  
-  typescript: {
-    ignoreBuildErrors: true,
-  },
-  
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
-  
+  typescript: { ignoreBuildErrors: true },
+  eslint: { ignoreDuringBuilds: true },
+  output: 'standalone',
+  reactStrictMode: true,
+  swcMinify: true,
   async headers() {
     return [
       {
