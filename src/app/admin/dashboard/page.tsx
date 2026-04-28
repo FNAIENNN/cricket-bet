@@ -196,7 +196,7 @@ export default async function AdminDashboard() {
 
       {/* Quick Actions */}
       <div className="flex flex-wrap gap-3">
-        <Link href="/admin/matches/new" className="bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium px-5 py-2.5 rounded-xl transition-all duration-200 shadow-lg shadow-emerald-600/20">
+        <Link href="/admin/matches" className="bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium px-5 py-2.5 rounded-xl transition-all duration-200 shadow-lg shadow-emerald-600/20">
           + Create New Match
         </Link>
         <Link href="/admin/settle" className="bg-blue-600/20 hover:bg-blue-600/30 border border-blue-600/30 text-blue-400 text-sm font-medium px-5 py-2.5 rounded-xl transition-all duration-200">
