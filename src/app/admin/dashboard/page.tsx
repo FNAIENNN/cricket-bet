@@ -10,9 +10,16 @@ export const dynamic = "force-dynamic";
 
 export default async function AdminDashboard() {
   const session = await auth();
-  if (!session || session.user.role !== "ADMIN") redirect("/login");
+  
+  // Safe session check with optional chaining
+  if (!session?.user || session.user.role !== "ADMIN") {
+    redirect("/login");
+  }
 
-  // Fetch all data in parallel for better performance
+  // Safe name access with fallback
+  const adminName = session.user.name?.split(" ")[0] || session.user.email?.split("@")[0] || "Admin";
+
+  // Fetch all data in parallel with error handling for each query
   const [
     totalUsers,
     totalBets,
@@ -27,16 +34,14 @@ export default async function AdminDashboard() {
     recentTransactions,
     weeklyStats,
   ] = await Promise.all([
-    prisma.user.count({ where: { role: "USER" } }),
-    prisma.bet.count(),
-    prisma.bet.count({ where: { status: "PENDING" } }),
-    prisma.match.count({ where: { status: "LIVE" } }),
-    prisma.match.count({ where: { status: "UPCOMING" } }),
-    prisma.match.count({ where: { status: "FINISHED" } }),
-    prisma.transaction.count({ where: { type: "WITHDRAWAL", status: "PENDING" } }),
-    prisma.bet.aggregate({ 
-      _sum: { amount: true, payout: true } 
-    }),
+    prisma.user.count({ where: { role: "USER" } }).catch(() => 0),
+    prisma.bet.count().catch(() => 0),
+    prisma.bet.count({ where: { status: "PENDING" } }).catch(() => 0),
+    prisma.match.count({ where: { status: "LIVE" } }).catch(() => 0),
+    prisma.match.count({ where: { status: "UPCOMING" } }).catch(() => 0),
+    prisma.match.count({ where: { status: "FINISHED" } }).catch(() => 0),
+    prisma.transaction.count({ where: { type: "WITHDRAWAL", status: "PENDING" } }).catch(() => 0),
+    prisma.bet.aggregate({ _sum: { amount: true, payout: true } }).catch(() => ({ _sum: { amount: 0, payout: 0 } })),
     prisma.bet.findMany({
       take: 8,
       orderBy: { createdAt: "desc" },
@@ -44,34 +49,49 @@ export default async function AdminDashboard() {
         user: { select: { name: true, email: true } },
         match: { select: { title: true, teamA: true, teamB: true } },
       },
-    }),
+    }).catch(() => []),
     prisma.user.findMany({
       where: { role: "USER" },
       take: 6,
       orderBy: { createdAt: "desc" },
       select: { id: true, name: true, email: true, createdAt: true },
-    }),
+    }).catch(() => []),
     prisma.transaction.findMany({
       where: { status: "PENDING" },
       take: 5,
       orderBy: { createdAt: "desc" },
       include: { user: { select: { name: true, email: true } } },
-    }),
-    prisma.$queryRaw<{ day: string; count: number }[]>`
-      SELECT DATE(created_at) as day, COUNT(*) as count 
-      FROM bets 
-      WHERE created_at >= NOW() - INTERVAL '7 days'
-      GROUP BY DATE(created_at)
-      ORDER BY day DESC
-    `,
+    }).catch(() => []),
+    // FIXED: Replaced raw SQL with Prisma's safe groupBy
+    prisma.bet.groupBy({
+      by: ["createdAt"],
+      where: {
+        createdAt: {
+          gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+        },
+      },
+      _count: {
+        id: true,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    }).catch(() => []),
   ]);
 
   const totalStaked = revenue._sum.amount ?? 0;
   const totalPaidOut = revenue._sum.payout ?? 0;
   const grossRevenue = totalStaked - totalPaidOut;
-  const winRate = totalBets > 0 
-    ? Math.round((totalBets - pendingBets) / totalBets * 100) 
-    : 0;
+
+  // Format weekly stats for display (safe transformation)
+  const formattedWeeklyStats = weeklyStats.map(stat => ({
+    day: stat.createdAt.toISOString().split('T')[0],
+    count: stat._count.id,
+  }));
+
+  // Calculate win rate safely
+  const settledBets = totalBets - pendingBets;
+  const winRate = totalBets > 0 ? Math.round((settledBets / totalBets) * 100) : 0;
 
   const statCards = [
     { 
@@ -80,7 +100,7 @@ export default async function AdminDashboard() {
       icon: Users, 
       color: "text-blue-400", 
       bg: "bg-blue-500/10",
-      trend: "+12%",
+      trend: totalUsers > 0 ? "+Active" : "0",
       trendUp: true 
     },
     { 
@@ -89,8 +109,8 @@ export default async function AdminDashboard() {
       icon: Activity, 
       color: "text-purple-400", 
       bg: "bg-purple-500/10",
-      trend: "+8%",
-      trendUp: true 
+      trend: `${winRate}% settled`,
+      trendUp: winRate > 50 
     },
     { 
       label: "Live Matches", 
@@ -99,7 +119,7 @@ export default async function AdminDashboard() {
       color: "text-red-400", 
       bg: "bg-red-500/10",
       trend: `${liveMatches} active`,
-      trendUp: true 
+      trendUp: liveMatches > 0 
     },
     { 
       label: "Pending Bets", 
@@ -119,7 +139,7 @@ export default async function AdminDashboard() {
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div>
             <h1 className="text-2xl font-bold text-white">Dashboard</h1>
-            <p className="text-gray-400 text-sm mt-1">Welcome back, {session.user.name?.split(" ")[0] || "Admin"}</p>
+            <p className="text-gray-400 text-sm mt-1">Welcome back, {adminName}</p>
           </div>
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
@@ -127,7 +147,7 @@ export default async function AdminDashboard() {
               <span className="text-xs text-emerald-400">System Operational</span>
             </div>
             <div className="text-right">
-              <p className="text-2xl font-bold text-white">{new Date().toLocaleDateString('en-IN', { weekday: 'long', month: 'short', day: 'numeric' })}</p>
+              <p className="text-xs text-gray-500">{new Date().toLocaleDateString('en-IN', { weekday: 'long', month: 'short', day: 'numeric' })}</p>
             </div>
           </div>
         </div>
@@ -224,16 +244,16 @@ export default async function AdminDashboard() {
             </Link>
           </div>
           <div className="space-y-2">
-            {(recentBets as any[]).map((bet) => (
+            {recentBets.length > 0 ? recentBets.map((bet: any) => (
               <div key={bet.id} className="bg-gray-900/50 rounded-xl p-3 border border-gray-800 hover:bg-gray-900 transition-all duration-200">
                 <div className="flex items-center justify-between">
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium text-white truncate">
-                      {bet.user.name ?? bet.user.email}
+                      {bet.user?.name ?? bet.user?.email ?? "Unknown User"}
                     </p>
-                    <p className="text-xs text-gray-500 truncate mt-0.5">{bet.match.title}</p>
+                    <p className="text-xs text-gray-500 truncate mt-0.5">{bet.match?.title ?? "Unknown Match"}</p>
                     <p className="text-xs text-emerald-400 mt-1">
-                      → {bet.selection === "teamA" ? bet.match.teamA : bet.match.teamB}
+                      → {bet.selection === "teamA" ? bet.match?.teamA ?? "Team A" : bet.match?.teamB ?? "Team B"}
                     </p>
                   </div>
                   <div className="text-right ml-3 shrink-0">
@@ -243,8 +263,7 @@ export default async function AdminDashboard() {
                   </div>
                 </div>
               </div>
-            ))}
-            {recentBets.length === 0 && (
+            )) : (
               <div className="text-center py-8 text-gray-500 text-sm">No bets placed yet</div>
             )}
           </div>
@@ -262,7 +281,7 @@ export default async function AdminDashboard() {
             </Link>
           </div>
           <div className="space-y-2">
-            {(recentUsers as any[]).map((user) => (
+            {recentUsers.length > 0 ? recentUsers.map((user: any) => (
               <div key={user.id} className="bg-gray-900/50 rounded-xl p-3 border border-gray-800 hover:bg-gray-900 transition-all duration-200">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-600 to-emerald-800 flex items-center justify-center text-sm font-bold text-white shrink-0">
@@ -279,13 +298,39 @@ export default async function AdminDashboard() {
                   </div>
                 </div>
               </div>
-            ))}
-            {recentUsers.length === 0 && (
+            )) : (
               <div className="text-center py-8 text-gray-500 text-sm">No users registered yet</div>
             )}
           </div>
         </div>
       </div>
+
+      {/* Weekly Stats Chart Section (Optional) */}
+      {formattedWeeklyStats.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-2">
+              <TrendingUp className="w-4 h-4" />
+              Weekly Activity
+            </h2>
+          </div>
+          <div className="bg-gray-900/50 rounded-xl p-4 border border-gray-800">
+            <div className="flex items-end gap-2 h-32">
+              {formattedWeeklyStats.slice(0, 7).map((stat, idx) => {
+                const maxCount = Math.max(...formattedWeeklyStats.map(s => s.count), 1);
+                const height = (stat.count / maxCount) * 100;
+                return (
+                  <div key={idx} className="flex-1 flex flex-col items-center gap-1">
+                    <div className="w-full bg-emerald-500/20 rounded-t-lg transition-all duration-300 hover:bg-emerald-500/40" style={{ height: `${height}%`, minHeight: '4px' }} />
+                    <span className="text-[10px] text-gray-500">{new Date(stat.day).toLocaleDateString('en-IN', { weekday: 'short' })}</span>
+                    <span className="text-[9px] text-emerald-400">{stat.count}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Pending Transactions Section */}
       {recentTransactions.length > 0 && (
@@ -300,11 +345,11 @@ export default async function AdminDashboard() {
             </Link>
           </div>
           <div className="space-y-2">
-            {(recentTransactions as any[]).map((tx) => (
+            {recentTransactions.map((tx: any) => (
               <div key={tx.id} className="bg-yellow-950/20 rounded-xl p-3 border border-yellow-800/30 hover:bg-yellow-950/30 transition-all duration-200">
                 <div className="flex items-center justify-between">
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-white">{tx.user.name ?? tx.user.email}</p>
+                    <p className="text-sm font-medium text-white">{tx.user?.name ?? tx.user?.email ?? "Unknown User"}</p>
                     <p className="text-xs text-gray-500 mt-0.5">
                       {tx.type === "DEPOSIT" ? "Deposit" : "Withdrawal"} Request
                     </p>
